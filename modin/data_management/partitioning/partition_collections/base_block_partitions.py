@@ -7,10 +7,71 @@ from typing import Tuple
 import numpy as np
 import pandas
 
+from threading import Thread
+
 from modin.data_management.partitioning.utils import (
     compute_chunksize,
     _get_nan_block_id,
 )
+
+
+class ThreadWithReturnValue(Thread):
+    def __init__(
+        self, group=None, target=None, name=None, args=(), kwargs={}, Verbose=None
+    ):
+        Thread.__init__(self, group, target, name, args, kwargs)
+        self._return = None
+
+    def run(self):
+        print(type(self._target))
+        if self._target is not None:
+            self._return = self._target(*self._args, **self._kwargs)
+
+    def join(self, *args):
+        Thread.join(self, *args)
+        return self._return
+
+
+def transform_object(obj):
+    return obj.to_pandas()
+
+
+def transform_partition(part):
+    threads = []
+    for obj in part:
+        t = ThreadWithReturnValue(target=transform_object, args=(obj,))
+        t.start()
+        threads += [t]
+    return [t.join() for t in threads]
+
+
+def concat_partitions(parts, axis):
+    if len(parts) == 1:
+        return parts
+    if len(parts) == 2:
+        return pandas.concat(parts, axis=axis)
+    else:
+        t1 = ThreadWithReturnValue(
+            target=concat_partitions, args=(parts[0 : len(parts) // 2], axis)
+        )
+        t1.start()
+        t2 = ThreadWithReturnValue(
+            target=concat_partitions, args=(parts[len(parts) // 2 :], axis)
+        )
+        t2.start()
+        return pandas.concat([t1.join(), t2.join()], axis=axis)
+
+
+def concat_rows(rows, axis):
+    threads = []
+    for row in rows:
+        t = ThreadWithReturnValue(
+            target=concat_partitions, args=([part for part in row], axis)
+        )
+        t.start()
+        threads += [t]
+    print('len:', len(threads))
+    return [pandas.concat(t.join(), axis=axis) for t in threads]
 
 
 class BaseBlockPartitions(object):
@@ -420,9 +481,12 @@ class BaseBlockPartitions(object):
         if is_transposed:
             return self.transpose().to_pandas(False).T
         else:
-            retrieved_objects = [
-                [obj.to_pandas() for obj in part] for part in self.partitions
-            ]
+            threads = []
+            for part in self.partitions:
+                t = ThreadWithReturnValue(target=transform_partition, args=(part,))
+                t.start()
+                threads += [t]
+            retrieved_objects = [t.join() for t in threads]
             if all(
                 isinstance(part, pandas.Series)
                 for row in retrieved_objects
@@ -443,10 +507,7 @@ class BaseBlockPartitions(object):
                 raise ValueError(
                     "Some partitions contain Series and some contain DataFrames"
                 )
-            df_rows = [
-                pandas.concat([part for part in row], axis=axis)
-                for row in retrieved_objects
-            ]
+            df_rows = concat_rows(retrieved_objects, axis)
             if len(df_rows) == 0:
                 return pandas.DataFrame()
             else:
