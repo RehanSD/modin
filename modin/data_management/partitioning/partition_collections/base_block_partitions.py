@@ -70,8 +70,7 @@ def concat_rows(rows, axis):
         )
         t.start()
         threads += [t]
-    print('len:', len(threads))
-    return [pandas.concat(t.join(), axis=axis) for t in threads]
+    return [t.join() for t in threads]
 
 
 class BaseBlockPartitions(object):
@@ -508,6 +507,7 @@ class BaseBlockPartitions(object):
                     "Some partitions contain Series and some contain DataFrames"
                 )
             df_rows = concat_rows(retrieved_objects, axis)
+            print("Hello df_rows:", df_rows)
             if len(df_rows) == 0:
                 return pandas.DataFrame()
             else:
