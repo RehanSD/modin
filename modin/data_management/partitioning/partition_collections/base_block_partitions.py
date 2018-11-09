@@ -23,7 +23,6 @@ class ThreadWithReturnValue(Thread):
         self._return = None
 
     def run(self):
-        print(type(self._target))
         if self._target is not None:
             self._return = self._target(*self._args, **self._kwargs)
 
@@ -46,11 +45,7 @@ def transform_partition(part):
 
 
 def concat_partitions(parts, axis):
-    if len(parts) == 1:
-        return parts
-    if len(parts) == 2:
-        return pandas.concat(parts, axis=axis)
-    else:
+    if len(parts) > 2:
         t1 = ThreadWithReturnValue(
             target=concat_partitions, args=(parts[0 : len(parts) // 2], axis)
         )
@@ -59,7 +54,8 @@ def concat_partitions(parts, axis):
             target=concat_partitions, args=(parts[len(parts) // 2 :], axis)
         )
         t2.start()
-        return pandas.concat([t1.join(), t2.join()], axis=axis)
+        return pandas.concat([t1.join(), t2.join()], axis)
+    return pandas.concat(parts, axis)
 
 
 def concat_rows(rows, axis):
@@ -507,7 +503,6 @@ class BaseBlockPartitions(object):
                     "Some partitions contain Series and some contain DataFrames"
                 )
             df_rows = concat_rows(retrieved_objects, axis)
-            print("Hello df_rows:", df_rows)
             if len(df_rows) == 0:
                 return pandas.DataFrame()
             else:
