@@ -45,16 +45,6 @@ def transform_partition(part):
 
 
 def concat_partitions(parts, axis):
-    if len(parts) > 2:
-        t1 = ThreadWithReturnValue(
-            target=concat_partitions, args=(parts[0 : len(parts) // 2], axis)
-        )
-        t1.start()
-        t2 = ThreadWithReturnValue(
-            target=concat_partitions, args=(parts[len(parts) // 2 :], axis)
-        )
-        t2.start()
-        return pandas.concat([t1.join(), t2.join()], axis)
     return pandas.concat(parts, axis)
 
 
